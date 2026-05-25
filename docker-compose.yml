@@ -4,6 +4,7 @@ services:
       context: .
       args:
         PYTORCH_VERSION: "25.11-py3" # 按需修改版本
+        WHISPER_MODEL: "medium"       # 可改为 small/large 等
     image: youtube2markdown:latest
     # ── GPU 直通 ──────────────────────────────────────────────────
     deploy:

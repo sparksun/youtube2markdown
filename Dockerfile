@@ -20,6 +20,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 转录后端：openai-whisper（torch backend，适配 ARM64 CUDA）
 RUN pip install --no-cache-dir openai-whisper
 
+# ── 预下载 Whisper 模型（烤进镜像，运行时完全离线）────────────────
+# 模型存储于 /root/.cache/whisper/，成为镜像的一层
+# medium ≈ 1.4 GB；如需其他大小，构建时传 --build-arg WHISPER_MODEL=small
+ARG WHISPER_MODEL=medium
+RUN python -c "import whisper; whisper.load_model('${WHISPER_MODEL}')" && \
+    echo "✅ Whisper ${WHISPER_MODEL} 模型已缓存"
+
 # ── 复制代码 ──────────────────────────────────────────────────────
 COPY youtube2markdown.py .
 COPY .env.example .
