@@ -181,10 +181,11 @@ tool: "youtube2markdown"
 | 后端 | 设备 | 模式 | 预估加速 | 适用场景 |
 |------|------|------|---------|----------|
 | `mlx` | Apple Silicon GPU/ANE | float16 | **5–10×** | Mac M系列，需 `pip install mlx-whisper` |
-| `faster-whisper` (CUDA) | NVIDIA GPU | float16 | **10–20×** | Windows/Linux 带 CUDA，自动检测 |
+| `faster-whisper` (CUDA) | NVIDIA GPU | float16 | **10–20×** | x86_64 Linux/Windows 带 CUDA，自动检测 |
+| `torch` | NVIDIA GPU (ARM64) | float16 | **类似 GPU** | DGX Spark / Jetson 等 ARM64 CUDA，需 `pip install openai-whisper torch` |
 | `faster-whisper` (CPU) | CPU | int8 | 基准 | 无 GPU 时自动回退 |
 
-`auto`（默认）时自动检测和选择，并在运行时打印所用后端。
+`auto`（默认）自动检测和选择，优先级：**mlx → faster-whisper（CUDA）→ torch（CUDA）→ CPU**。
 
 ## Whisper 转录进度
 
@@ -195,6 +196,17 @@ tool: "youtube2markdown"
    模型仓库：mlx-community/whisper-medium-mlx（首次运行会自动下载）
   ⠻  转录中……  已用 38s
 ✅ 转录完成，耗时 42.1s
+```
+
+**openai-whisper + torch（DGX Spark / ARM64 CUDA）**：GPU 加速，spinner 显示进度：
+
+```
+  🔍 自动选择转录后端：torch
+  ℹ️  ctranslate2 无 CUDA 支持（ARM64 平台），改用 openai-whisper + torch GPU
+🚀 [openai-whisper / medium / NVIDIA GPU] 加载模型……
+🎙️  开始转录（首次运行不需下载）……
+  ⠼  转录中……  已用 62s
+✅ 转录完成，耗时 68.3s
 ```
 
 **faster-whisper（CUDA GPU / CPU）**：逐段迭代，显示详细进度条：
@@ -213,7 +225,15 @@ tool: "youtube2markdown"
 - `ffmpeg`（处理本地视频文件时必须；macOS: `brew install ffmpeg`）
 - `faster-whisper`（本地文件 / YouTube 无字幕回退）
 - `mlx-whisper`（可选，Apple Silicon 专属；`pip install mlx-whisper`）
-- CUDA（可选，NVIDIA GPU 用户；`pip install ctranslate2 faster-whisper`，4.x 版已内置 CUDA 支持）
+- `openai-whisper` + `torch`（可选，ARM64 CUDA 如 DGX Spark；`pip install openai-whisper torch`）
+- CUDA（可选，x86_64 NVIDIA GPU；`pip install ctranslate2 faster-whisper`，4.x 版已内置 CUDA）
+
+> **DGX Spark / Grace Blackwell 用户**：
+> ctranslate2 目前无 ARM64+CUDA 官方 wheel，请改用 `torch` 后端：
+> ```bash
+> pip install openai-whisper torch
+> # auto 模式下会自动选择 torch GPU
+> ```
 
 ## 未来计划
 
