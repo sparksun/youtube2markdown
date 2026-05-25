@@ -52,6 +52,32 @@ cp .env.example .env
 
 ### 3. 运行
 
+**NVIDIA DGX Spark / Grace Blackwell（推荐使用 Docker）**
+
+ctranslate2 目前无 ARM64+CUDA 官方 wheel，最省心的方案是直接使用 NVIDIA 官方 PyTorch 镜像，
+其中 CUDA 栈已为 ARM64 完整预编译：
+
+```bash
+# 首次构建镜像（约 5–10 分钟，仅需一次）
+docker compose build
+
+# 处理本地文件
+docker compose run --rm youtube2markdown "/app/input/video.mp4"
+
+# 处理 YouTube URL
+docker compose run --rm youtube2markdown https://www.youtube.com/watch?v=xxxxx
+
+# 指定参数
+docker compose run --rm youtube2markdown "/app/input/video.mp4" \
+  --whisper-model medium --output-dir /app/output
+```
+
+> 将媒体文件放入本机 `input/` 目录，输出结果在本机 `output/` 目录。
+> `.env` 文件中的 `OPENROUTER_API_KEY` 会自动注入容器。
+> 容器内 `auto` 模式会自动选择 `torch` GPU 后端。
+
+---
+
 #### YouTube 视频
 
 ```bash
