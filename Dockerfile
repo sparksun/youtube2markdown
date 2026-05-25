@@ -8,9 +8,9 @@ LABEL description="YouTube/本地视频 → 中文 Markdown，GPU 加速转录"
 
 WORKDIR /app
 
-# ── 系统依赖：用 conda-forge 安装 ffmpeg（比 apt 更可靠，有 ARM64 预编译包）──
-# NVIDIA PyTorch 容器自带 conda，conda-forge 包含 ARM64 静态编译的 ffmpeg
-RUN conda install -y -c conda-forge ffmpeg && conda clean -ya
+# ── ffmpeg：用 imageio-ffmpeg（pip 包，内含 ARM64 静态二进制，无需 apt/conda）──
+RUN pip install --no-cache-dir imageio-ffmpeg && \
+    ln -sf "$(python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')" /usr/local/bin/ffmpeg
 
 # ── Python 依赖 ───────────────────────────────────────────────────
 # 基础镜像已含 torch，只装其余依赖
