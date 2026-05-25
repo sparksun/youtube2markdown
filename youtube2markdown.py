@@ -154,21 +154,45 @@ def chunk_text(text: str, chunk_size: int = 30000) -> list[str]:
 
 def _has_cuda() -> bool:
     """
-    检测是否有可用的 NVIDIA CUDA GPU（通过 ctranslate2 检测，无需安装 torch）。
-    faster-whisper 依赖 ctranslate2，后者在安装时若包含 CUDA 支持则可用。
+    检测是否有可用的 NVIDIA CUDA GPU。
+    依次尝试四种方法，兼容 ctranslate2 3.x / 4.x 以及有无 torch。
     """
+    # 方法 1：ctranslate2 4.x 提供的 GPU 计数接口（最可靠）
+    try:
+        import ctranslate2
+        if hasattr(ctranslate2, "get_cuda_device_count"):
+            if ctranslate2.get_cuda_device_count() > 0:
+                return True
+    except Exception:
+        pass
+
+    # 方法 2：ctranslate2 支持的计算类型列表（适用于部分 3.x/4.x）
     try:
         import ctranslate2
         types = ctranslate2.get_supported_compute_types("cuda")
-        return len(types) > 0
+        if types:
+            return True
     except Exception:
         pass
-    # 备用：通过 torch 检测（如果已安装）
+
+    # 方法 3：nvidia-smi（不依赖 Python 包，只要驱动已装就能用）
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return True
+    except Exception:
+        pass
+
+    # 方法 4：torch（如果已安装）
     try:
         import torch
         return torch.cuda.is_available()
     except ImportError:
         pass
+
     return False
 
 
@@ -206,16 +230,22 @@ def _transcribe_faster_whisper(
     """
     from faster_whisper import WhisperModel
 
-    # ── 自动选择设备与精度 ────────────────────────────────────────
+    print(f"🎙️  [faster-whisper / {model_size}] 检测设备……")
+
+    # ── 自动选择设备：先尝试 CUDA，失败则回退 CPU ──────────────────────
     if _has_cuda():
-        device, compute_type = "cuda", "float16"
-        device_label = "NVIDIA GPU / float16"
+        try:
+            model = WhisperModel(model_size, device="cuda", compute_type="float16")
+            device_label = "NVIDIA GPU / float16"
+        except Exception as cuda_err:
+            print(f"  ⚠️  CUDA 初始化失败（{cuda_err}），回退到 CPU")
+            model = WhisperModel(model_size, device="cpu", compute_type="int8")
+            device_label = "CPU / int8"
     else:
-        device, compute_type = "cpu", "int8"
+        model = WhisperModel(model_size, device="cpu", compute_type="int8")
         device_label = "CPU / int8"
 
     print(f"🎙️  [faster-whisper / {model_size} / {device_label}] 转录中（beam_size=1, VAD 已启用）……")
-    model = WhisperModel(model_size, device=device, compute_type=compute_type)
     segments, info = model.transcribe(
         audio_path,
         beam_size=1,        # 贪心解码，2–3× 加速，精度损失极小
