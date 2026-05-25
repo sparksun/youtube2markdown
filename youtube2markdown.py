@@ -196,21 +196,62 @@ def _has_cuda() -> bool:
     return False
 
 
+def _ctranslate2_cuda_compiled() -> bool:
+    """
+    检测当前安装的 ctranslate2 是否编译了 CUDA 支持。
+    ctranslate2 在 ARM64 平台（DGX Spark 等）无官方 CUDA wheel，当返回 False 时
+    应考虑使用 openai-whisper + torch 作为替代方案。
+    """
+    try:
+        import ctranslate2
+        types = ctranslate2.get_supported_compute_types("cuda")
+        return bool(types)
+    except Exception:
+        return False
+
+
+def _torch_cuda_available() -> bool:
+    """torch 已安装且 CUDA 可用，失败返回 False。"""
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except ImportError:
+        return False
+
+
 def _detect_best_backend() -> str:
     """
     自动检测最佳转录后端。
     优先级：
       1. Apple Silicon (arm64 Mac) + mlx-whisper 已安装 → mlx（GPU/ANE，5–10×）
-      2. 其他情况 → faster-whisper
-         - 内部自动检测 NVIDIA CUDA → float16 GPU 模式（~10–20×）
-         - 无 CUDA → CPU int8 模式
+      2. CUDA GPU 可用 + ctranslate2 已编译 CUDA → faster-whisper（GPU float16，~10–20×）
+      3. CUDA GPU 可用 + ctranslate2 无 CUDA + torch 已安装 → torch（GPU，适用 ARM64）
+      4. 其他 → faster-whisper（CPU int8）
     """
+    # 1. Apple Silicon + mlx
     if platform.machine() == "arm64" and platform.system() == "Darwin":
         try:
             import mlx_whisper  # noqa: F401
             return "mlx"
         except ImportError:
             print("  ℹ️  未安装 mlx-whisper（pip install mlx-whisper），回退到 faster-whisper")
+
+    # 2 & 3. 检测 CUDA
+    if _has_cuda():
+        if _ctranslate2_cuda_compiled():
+            # ctranslate2 已编译 CUDA，直接用 faster-whisper GPU
+            return "faster-whisper"
+        # ctranslate2 未编译 CUDA（常见于 ARM64 如 DGX Spark）
+        if _torch_cuda_available():
+            try:
+                import whisper  # noqa: F401
+                print("  ℹ️  ctranslate2 无 CUDA 支持（ARM64 平台），改用 openai-whisper + torch GPU")
+                return "torch"
+            except ImportError:
+                print("  ℹ️  ctranslate2 无 CUDA 支持，建议：pip install openai-whisper torch")
+        else:
+            print("  ℹ️  ctranslate2 无 CUDA 支持，建议安装 torch 以启用 GPU：pip install openai-whisper torch")
+
     return "faster-whisper"
 
 
@@ -364,6 +405,75 @@ def _transcribe_mlx(
 
 
 # ═══════════════════════════════════════════════════════════════
+# 转录后端 C：openai-whisper + torch（ARM64 CUDA 等层）
+# ═══════════════════════════════════════════════════════════════
+
+def _transcribe_torch_whisper(
+    audio_path: str,
+    model_size: str = "medium",
+) -> tuple[str, str]:
+    """
+    用 openai-whisper + PyTorch 转录音频。
+    适用于 ctranslate2 无 CUDA 支持的平台（如 ARM64 DGX Spark）。
+    PyTorch 对 ARM64+CUDA 有官方支持，可直接使用 GPU。
+    转录为阻塞调用，用 threading + spinner 显示进度。
+    返回 (transcript_text, detected_language)
+    """
+    try:
+        import whisper
+        import torch
+    except ImportError as e:
+        raise ImportError(
+            f"缺少依赖：{e}\n"
+            "请运行：pip install openai-whisper torch"
+        ) from e
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device_label = "NVIDIA GPU" if device == "cuda" else "CPU"
+    print(f"🚀 [openai-whisper / {model_size} / {device_label}] 加载模型……")
+    model = whisper.load_model(model_size, device=device)
+    print(f"🎙️  开始转录（首次运行不需下载）……")
+
+    result_holder: list = [None]
+    error_holder:  list = [None]
+
+    def _run():
+        try:
+            # verbose=False 关闭 openai-whisper 自带的进度输出
+            result_holder[0] = model.transcribe(audio_path, verbose=False)
+        except Exception as exc:
+            error_holder[0] = exc
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+
+    spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    start_time = time.time()
+    idx = 0
+    while worker.is_alive():
+        elapsed = time.time() - start_time
+        print(
+            f"\r  {spinner[idx % len(spinner)]}  转录中……  已用 {elapsed:.0f}s",
+            end="",
+            flush=True,
+        )
+        time.sleep(0.15)
+        idx += 1
+    print()  # 换行清除 spinner
+
+    worker.join()
+    if error_holder[0]:
+        raise error_holder[0]
+
+    elapsed_total = time.time() - start_time
+    result = result_holder[0]
+    text = result.get("text", "").strip()
+    language = result.get("language", "unknown")
+    print(f"✅ 转录完成，耗时 {elapsed_total:.1f}s")
+    return text, language
+
+
+# ═══════════════════════════════════════════════════════════════
 # 核心：转录调度器
 # ═══════════════════════════════════════════════════════════════
 
@@ -374,7 +484,7 @@ def _transcribe_audio_file(
 ) -> tuple[str, str]:
     """
     选择最佳转录后端并执行转录。
-    backend: "auto" | "mlx" | "faster-whisper"
+    backend: "auto" | "mlx" | "faster-whisper" | "torch"
     返回 (transcript_text, detected_language)
     """
     resolved = backend
@@ -384,6 +494,8 @@ def _transcribe_audio_file(
 
     if resolved == "mlx":
         return _transcribe_mlx(audio_path, model_size)
+    elif resolved == "torch":
+        return _transcribe_torch_whisper(audio_path, model_size)
     else:
         return _transcribe_faster_whisper(audio_path, model_size)
 
@@ -931,13 +1043,14 @@ def main():
                         default="medium",
                         help="Whisper 模型大小（默认：medium）")
     parser.add_argument("--whisper-backend",
-                        choices=["auto", "mlx", "faster-whisper"],
+                        choices=["auto", "mlx", "faster-whisper", "torch"],
                         default="auto",
                         help=(
                             "转录后端（默认：auto）\n"
-                            "  auto           自动选择：Apple Silicon→mlx，其他→faster-whisper\n"
+                            "  auto           自动选择：Apple Silicon→mlx / CUDA ct2→faster-whisper / CUDA torch→torch / 其他→CPU\n"
                             "  mlx            mlx-whisper，Apple Silicon GPU/ANE 加速（需安装）\n"
-                            "  faster-whisper CPU 推理（beam_size=1 + VAD 已优化）"
+                            "  faster-whisper CPU/CUDA（自动检测，beam_size=1+VAD）\n"
+                            "  torch          openai-whisper+torch，适用于 ARM64 CUDA 如 DGX Spark（需安装）"
                         ))
     parser.add_argument("--chunk-size", type=int, default=30000,
                         help="每次发送给 DeepSeek 的最大字符数（默认：30000）")
