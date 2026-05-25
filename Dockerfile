@@ -21,11 +21,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir openai-whisper
 
 # ── 预下载 Whisper 模型（烤进镜像，运行时完全离线）────────────────
-# 模型存储于 /root/.cache/whisper/，成为镜像的一层
-# medium ≈ 1.4 GB；如需其他大小，构建时传 --build-arg WHISPER_MODEL=small
+# 使用带断点续传和重试的脚本，避免网络抖动导致 SHA256 校验失败
+# medium ≈ 1.4 GB；small ≈ 461 MB；构建时通过 --build-arg WHISPER_MODEL=small 指定
 ARG WHISPER_MODEL=medium
-RUN python -c "import whisper; whisper.load_model('${WHISPER_MODEL}')" && \
-    echo "✅ Whisper ${WHISPER_MODEL} 模型已缓存"
+COPY download_whisper_model.py /tmp/download_whisper_model.py
+RUN python /tmp/download_whisper_model.py "${WHISPER_MODEL}"
 
 # ── 复制代码 ──────────────────────────────────────────────────────
 COPY youtube2markdown.py .
