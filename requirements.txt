@@ -1,0 +1,7 @@
+# ── 核心依赖（必须安装）────────────────────────────────────────
+openai>=1.0.0
+python-dotenv>=1.0.0
+youtube-transcript-api>=0.6.2
+yt-dlp>=2024.1.1
+faster-whisper>=1.0.0
+# （还需安装系统级 ffmpeg：brew install ffmpeg）
