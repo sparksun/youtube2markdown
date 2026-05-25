@@ -1,6 +1,6 @@
 # ── 基础镜像：NVIDIA 官方 PyTorch（包含 ARM64+CUDA 完整支持）────
 # 版本列表：https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch
-ARG PYTORCH_VERSION=25.04-py3
+ARG PYTORCH_VERSION=25.11-py3
 FROM nvcr.io/nvidia/pytorch:${PYTORCH_VERSION}
 
 LABEL maintainer="youtube2markdown"
