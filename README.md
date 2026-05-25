@@ -36,9 +36,9 @@ pip install mlx-whisper
 **NVIDIA GPU（Windows / Linux）——自动启用 CUDA 加速**
 
 ```bash
-# 只需安装带 CUDA 支持的 ctranslate2，faster-whisper 会自动识别 GPU
- pip install ctranslate2[cuda] faster-whisper
-# CUDA GPU 在运行时会自动选择 float16 模式，无需额外配置
+# ctranslate2 4.x 已内置 CUDA 支持，无需 [cuda] extra
+pip install ctranslate2 faster-whisper
+# 安装后 faster-whisper 会自动识别 NVIDIA GPU 并使用 float16 加速
 ```
 
 ### 2. 配置 API Key
@@ -213,7 +213,7 @@ tool: "youtube2markdown"
 - `ffmpeg`（处理本地视频文件时必须；macOS: `brew install ffmpeg`）
 - `faster-whisper`（本地文件 / YouTube 无字幕回退）
 - `mlx-whisper`（可选，Apple Silicon 专属；`pip install mlx-whisper`）
-- CUDA（可选，NVIDIA GPU 用户；`pip install ctranslate2[cuda]`）
+- CUDA（可选，NVIDIA GPU 用户；`pip install ctranslate2 faster-whisper`，4.x 版已内置 CUDA 支持）
 
 ## 未来计划
 
